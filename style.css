@@ -444,3 +444,77 @@ p { margin: 0; }
 @media (min-width: 480px) {
   .brand-mark, .brand-sub { font-size: 1.8rem; }
 }
+
+/* ---------- modal ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
+}
+.modal-overlay[hidden] { display: none !important; }
+.modal-box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 20px 18px calc(20px + var(--safe-bottom));
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  animation: slideUp 0.22s ease;
+}
+@keyframes slideUp { from { transform: translateY(60px); opacity:0 } to { transform:none; opacity:1 } }
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.modal-header h2 { margin: 0; }
+
+/* ---------- AI card ---------- */
+.ai-card { border-color: rgba(230,57,70,0.3); }
+.ai-status {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 10px 0;
+  text-align: center;
+}
+.ai-result {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--chalk);
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 8px;
+  font-family: var(--font-body);
+}
+.ai-result h3 {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin: 12px 0 4px;
+}
+.ai-result h3:first-child { margin-top: 0; }
+.ai-nokey {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 8px 0;
+  margin: 0;
+}
+
+/* ---------- chart show/hide via wrap ---------- */
+.chart-wrap { position: relative; height: 240px; margin-top: 8px; }
+.chart-wrap.hidden-chart { display: none; }
+.chart-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 16px 0; margin:0; }
+.chart-empty.hidden-chart { display: none; }
