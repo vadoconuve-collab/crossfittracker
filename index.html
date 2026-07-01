@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1A1A1A">
+<title>WOD Log — Diario de CrossFit</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-brand">
+    <span class="brand-mark">WOD</span><span class="brand-sub">LOG</span>
+  </div>
+  <div class="topbar-date" id="todayLabel"></div>
+</header>
+
+<main id="app">
+
+  <!-- ===================== TAB: ENTRENAMIENTOS (lista) ===================== -->
+  <section class="view" id="view-list" data-view>
+    <div class="view-header">
+      <h1>Entrenamientos</h1>
+      <button class="btn btn-accent" id="btnNewWorkout">+ Nuevo WOD</button>
+    </div>
+    <div class="list-stats" id="listStats"></div>
+    <div class="workout-list" id="workoutList"></div>
+    <div class="empty-state" id="emptyWorkouts" hidden>
+      <p class="empty-eyebrow">PIZARRA EN BLANCO</p>
+      <p>Todavía no hay entrenamientos. Sube la foto de tu primer WOD para empezar.</p>
+      <button class="btn btn-accent" id="btnNewWorkoutEmpty">+ Nuevo WOD</button>
+    </div>
+  </section>
+
+  <!-- ===================== TAB: DETALLE / EDICIÓN DE WORKOUT ===================== -->
+  <section class="view" id="view-detail" data-view hidden>
+    <div class="view-header">
+      <button class="btn btn-ghost" id="btnBackToList">&larr; Volver</button>
+      <button class="btn btn-danger" id="btnDeleteWorkout">Eliminar</button>
+    </div>
+
+    <div class="card photo-card">
+      <div class="photo-drop" id="photoDrop">
+        <img id="workoutPhotoPreview" alt="Foto del entrenamiento" hidden>
+        <div class="photo-placeholder" id="photoPlaceholder">
+          <p class="empty-eyebrow">FOTO DEL WOD</p>
+          <p>Toca para subir la foto de la pizarra</p>
+        </div>
+      </div>
+      <input type="file" id="photoInput" accept="image/*" hidden>
+      <div class="ocr-row">
+        <button class="btn btn-secondary" id="btnRunOCR" disabled>Leer texto de la foto (OCR)</button>
+        <span class="ocr-status" id="ocrStatus"></span>
+      </div>
+      <details class="ocr-details" id="ocrDetails" hidden>
+        <summary>Texto reconocido (revísalo y edita si hace falta)</summary>
+        <textarea id="ocrTextArea" rows="6" placeholder="El texto leído de la foto aparecerá aquí..."></textarea>
+        <button class="btn btn-secondary btn-small" id="btnStructure">Convertir líneas en ejercicios</button>
+      </details>
+    </div>
+
+    <div class="card">
+      <label class="field">
+        <span>Nombre del WOD</span>
+        <input type="text" id="workoutName" placeholder='Ej. "Fran", "Murph", Hero WOD del 12/06...'>
+      </label>
+      <label class="field">
+        <span>Fecha</span>
+        <input type="date" id="workoutDate">
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="card-header-row">
+        <h2>Ejercicios</h2>
+        <button class="btn btn-secondary btn-small" id="btnAddExercise">+ Ejercicio</button>
+      </div>
+      <div id="exerciseList" class="exercise-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen del entrenamiento</h2>
+      <div class="grid-2">
+        <label class="field">
+          <span>Tiempo total</span>
+          <input type="text" id="totalTime" placeholder="mm:ss">
+        </label>
+        <label class="field">
+          <span>Calorías quemadas</span>
+          <input type="number" id="calories" placeholder="kcal" min="0">
+        </label>
+      </div>
+      <div class="grid-3">
+        <label class="field">
+          <span>Pulsaciones máx.</span>
+          <input type="number" id="hrMax" placeholder="ppm" min="0">
+        </label>
+        <label class="field">
+          <span>Pulsaciones mín.</span>
+          <input type="number" id="hrMin" placeholder="ppm" min="0">
+        </label>
+        <label class="field">
+          <span>Pulsaciones media</span>
+          <input type="number" id="hrAvg" placeholder="ppm" min="0">
+        </label>
+      </div>
+      <label class="field">
+        <span>Notas</span>
+        <textarea id="workoutNotes" rows="2" placeholder="Sensaciones, RX/Scaled, etc."></textarea>
+      </label>
+    </div>
+
+    <button class="btn btn-accent btn-full" id="btnSaveWorkout">Guardar entrenamiento</button>
+  </section>
+
+  <!-- ===================== TAB: MEDIDAS ===================== -->
+  <section class="view" id="view-measurements" data-view hidden>
+    <div class="view-header">
+      <h1>Peso y medidas</h1>
+    </div>
+
+    <div class="card">
+      <h2>Nuevo registro</h2>
+      <label class="field">
+        <span>Fecha</span>
+        <input type="date" id="measureDate">
+      </label>
+      <div class="grid-2">
+        <label class="field">
+          <span>Peso (kg)</span>
+          <input type="number" step="0.1" id="measureWeight" placeholder="kg">
+        </label>
+        <label class="field">
+          <span>% Grasa corporal</span>
+          <input type="number" step="0.1" id="measureBodyFat" placeholder="opcional">
+        </label>
+      </div>
+      <div class="grid-3">
+        <label class="field">
+          <span>Pecho (cm)</span>
+          <input type="number" step="0.1" id="measureChest">
+        </label>
+        <label class="field">
+          <span>Cintura (cm)</span>
+          <input type="number" step="0.1" id="measureWaist">
+        </label>
+        <label class="field">
+          <span>Cadera (cm)</span>
+          <input type="number" step="0.1" id="measureHips">
+        </label>
+      </div>
+      <div class="grid-3">
+        <label class="field">
+          <span>Brazo (cm)</span>
+          <input type="number" step="0.1" id="measureArm">
+        </label>
+        <label class="field">
+          <span>Muslo (cm)</span>
+          <input type="number" step="0.1" id="measureThigh">
+        </label>
+        <label class="field">
+          <span>Pantorrilla (cm)</span>
+          <input type="number" step="0.1" id="measureCalf">
+        </label>
+      </div>
+      <button class="btn btn-accent btn-full" id="btnSaveMeasurement">Guardar registro</button>
+    </div>
+
+    <div class="card">
+      <div class="card-header-row">
+        <h2>Historial</h2>
+      </div>
+      <div class="measurement-list" id="measurementList"></div>
+      <div class="empty-state" id="emptyMeasurements" hidden>
+        <p class="empty-eyebrow">SIN DATOS TODAVÍA</p>
+        <p>Añade tu primer registro de peso y medidas.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TAB: GRÁFICAS ===================== -->
+  <section class="view" id="view-charts" data-view hidden>
+    <div class="view-header">
+      <h1>Progreso</h1>
+    </div>
+
+    <div class="card">
+      <h2>Por ejercicio</h2>
+      <label class="field">
+        <span>Elige un ejercicio</span>
+        <select id="exerciseSelect"></select>
+      </label>
+      <div class="chart-wrap"><canvas id="exerciseChart"></canvas></div>
+      <p class="chart-empty" id="exerciseChartEmpty" hidden>Aún no hay suficientes datos de este ejercicio.</p>
+    </div>
+
+    <div class="card">
+      <h2>Peso corporal</h2>
+      <div class="chart-wrap"><canvas id="weightChart"></canvas></div>
+      <p class="chart-empty" id="weightChartEmpty" hidden>Añade registros en la pestaña Medidas para ver tu evolución.</p>
+    </div>
+
+    <div class="card">
+      <h2>Medidas corporales</h2>
+      <div class="chart-wrap"><canvas id="measuresChart"></canvas></div>
+      <p class="chart-empty" id="measuresChartEmpty" hidden>Añade registros en la pestaña Medidas para ver tu evolución.</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab-btn active" data-tab="view-list">
+    <span class="tab-icon">🏋️</span><span>WODs</span>
+  </button>
+  <button class="tab-btn" data-tab="view-measurements">
+    <span class="tab-icon">📏</span><span>Medidas</span>
+  </button>
+  <button class="tab-btn" data-tab="view-charts">
+    <span class="tab-icon">📈</span><span>Gráficas</span>
+  </button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
