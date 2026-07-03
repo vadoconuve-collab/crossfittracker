@@ -1,137 +1,88 @@
 'use strict';
 
-/* =========================================================
+/* ═══════════════════════════════════════════════════════════
    STORAGE
-   ========================================================= */
-const DB_KEY       = 'wodlog.workouts.v1';
-const MEASURE_KEY  = 'wodlog.measurements.v1';
-const SETTINGS_KEY = 'wodlog.settings.v1';
+═══════════════════════════════════════════════════════════ */
+const DB_KEY      = 'wodlog.workouts.v1';
+const MEASURE_KEY = 'wodlog.measurements.v1';
 
 const Store = {
-  getWorkouts()         { try { return JSON.parse(localStorage.getItem(DB_KEY)) || []; } catch { return []; } },
-  saveWorkouts(list)    { localStorage.setItem(DB_KEY, JSON.stringify(list)); },
-  getMeasurements()     { try { return JSON.parse(localStorage.getItem(MEASURE_KEY)) || []; } catch { return []; } },
-  saveMeasurements(l)   { localStorage.setItem(MEASURE_KEY, JSON.stringify(l)); },
-  getSettings()         { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; } },
-  saveSettings(obj)     { localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj)); }
+  getWorkouts()       { try { return JSON.parse(localStorage.getItem(DB_KEY))      || []; } catch { return []; } },
+  saveWorkouts(l)     { localStorage.setItem(DB_KEY,      JSON.stringify(l)); },
+  getMeasurements()   { try { return JSON.parse(localStorage.getItem(MEASURE_KEY)) || []; } catch { return []; } },
+  saveMeasurements(l) { localStorage.setItem(MEASURE_KEY, JSON.stringify(l)); }
 };
 
-function uid()      { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+function uid()      { return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function todayISO() { return new Date().toISOString().slice(0,10); }
 function fmtDate(iso) {
   if (!iso) return '';
-  const [y, m, d] = iso.split('-');
+  const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])
-  );
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-/* ---- Normalización de nombres de ejercicio (fuzzy matching) ---- */
-function normalizeName(str) {
+/* ── Fuzzy name matching: quita tildes, espacios extra, mayúsculas ── */
+function normName(str) {
   return (str || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')  // quitar tildes/acentos
-    .replace(/[^a-z0-9\s]/g, '')      // solo letras, números, espacios
+    .trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ');
 }
 
-/* =========================================================
-   APP STATE
-   ========================================================= */
-const state = {
-  currentWorkoutId: null,
-  draft: null,
-  charts: {}
-};
+/* ═══════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════ */
+const state = { currentId: null, draft: null };
 
-/* =========================================================
-   TAB NAVIGATION
-   ========================================================= */
+/* ═══════════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════════ */
 const views   = document.querySelectorAll('[data-view]');
 const tabBtns = document.querySelectorAll('.tab-btn');
 
 function showView(id) {
-  views.forEach(v => v.hidden = (v.id !== id));
+  views.forEach(v => { v.hidden = (v.id !== id); });
   tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === id));
   if (id === 'view-list')         renderWorkoutList();
   if (id === 'view-measurements') renderMeasurements();
-  if (id === 'view-charts')       { /* small delay so DOM is laid out before Chart.js measures canvas */ setTimeout(renderCharts, 80); }
+  if (id === 'view-charts')       renderCharts();
 }
 
-tabBtns.forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.tab)));
+tabBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.tab)));
 
 document.getElementById('todayLabel').textContent =
-  new Date().toLocaleDateString('es-ES', { weekday:'short', day:'2-digit', month:'short' });
+  new Date().toLocaleDateString('es-ES', {weekday:'short', day:'2-digit', month:'short'});
 
-/* =========================================================
-   SETTINGS / API KEY MODAL
-   ========================================================= */
-const settingsModal  = document.getElementById('settingsModal');
-const inputApiKey    = document.getElementById('inputApiKey');
-
-document.getElementById('btnOpenSettings').addEventListener('click', () => {
-  const s = Store.getSettings();
-  inputApiKey.value = s.openaiKey ? '••••••••' + s.openaiKey.slice(-4) : '';
-  settingsModal.hidden = false;
-});
-document.getElementById('btnCloseSettings').addEventListener('click', () => { settingsModal.hidden = true; });
-settingsModal.addEventListener('click', e => { if (e.target === settingsModal) settingsModal.hidden = true; });
-
-document.getElementById('btnSaveApiKey').addEventListener('click', () => {
-  const val = inputApiKey.value.trim();
-  if (!val || val.startsWith('••')) { settingsModal.hidden = true; return; }
-  const s = Store.getSettings();
-  s.openaiKey = val;
-  Store.saveSettings(s);
-  settingsModal.hidden = true;
-  showToast('Clave de API guardada ✓');
-});
-
-document.getElementById('btnDeleteApiKey').addEventListener('click', () => {
-  if (!confirm('¿Eliminar la clave de API guardada?')) return;
-  const s = Store.getSettings();
-  delete s.openaiKey;
-  Store.saveSettings(s);
-  inputApiKey.value = '';
-  settingsModal.hidden = true;
-  showToast('Clave eliminada');
-});
-
-function showToast(msg) {
-  let t = document.getElementById('__toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = '__toast';
-    t.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#232323;border:1px solid #3A3A3A;color:#F1EFE7;font-family:Oswald,sans-serif;font-size:0.82rem;text-transform:uppercase;letter-spacing:0.04em;padding:10px 18px;border-radius:8px;z-index:200;transition:opacity 0.3s';
-    document.body.appendChild(t);
-  }
-  t.textContent = msg;
-  t.style.opacity = '1';
-  clearTimeout(t.__timer);
-  t.__timer = setTimeout(() => { t.style.opacity = '0'; }, 2200);
+/* ── Toast helper ── */
+function toast(msg) {
+  let el = document.getElementById('__toast');
+  if (!el) { el = document.createElement('div'); el.id = '__toast'; document.body.appendChild(el); }
+  el.textContent = msg; el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 2400);
 }
 
-/* =========================================================
+/* ═══════════════════════════════════════════════════════════
    WORKOUT LIST
-   ========================================================= */
+═══════════════════════════════════════════════════════════ */
 function renderWorkoutList() {
-  const list      = Store.getWorkouts().sort((a,b) => (b.date||'').localeCompare(a.date||''));
-  const container = document.getElementById('workoutList');
-  const empty     = document.getElementById('emptyWorkouts');
-  const stats     = document.getElementById('listStats');
-  container.innerHTML = '';
+  const list  = Store.getWorkouts().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const cont  = document.getElementById('workoutList');
+  const empty = document.getElementById('emptyWorkouts');
+  const stats = document.getElementById('listStats');
+  cont.innerHTML = '';
 
-  if (list.length === 0) {
-    empty.hidden = false; container.hidden = true; stats.innerHTML = ''; return;
+  if (!list.length) {
+    empty.hidden = false; cont.hidden = true; stats.innerHTML = ''; return;
   }
-  empty.hidden = true; container.hidden = false;
-  const totalCal = list.reduce((s,w) => s + (Number(w.calories)||0), 0);
-  stats.innerHTML = `<span><b>${list.length}</b> WODs registrados</span><span style="margin-left:auto"><b>${totalCal}</b> kcal totales</span>`;
+  empty.hidden = true; cont.hidden = false;
+  const kcal = list.reduce((s,w) => s + (Number(w.calories)||0), 0);
+  stats.innerHTML = `<span><b>${list.length}</b> WODs</span><span style="margin-left:auto"><b>${kcal}</b> kcal totales</span>`;
 
   list.forEach(w => {
     const card = document.createElement('div');
@@ -139,57 +90,55 @@ function renderWorkoutList() {
     const thumb = w.photo
       ? `<img class="workout-thumb" src="${w.photo}" alt="">`
       : `<div class="workout-thumb">🏋️</div>`;
-    const exCount = (w.exercises||[]).length;
-    card.innerHTML = `
-      ${thumb}
+    const n = (w.exercises||[]).length;
+    card.innerHTML = `${thumb}
       <div class="workout-info">
-        <div class="workout-name">${escapeHtml(w.name||'WOD sin nombre')}</div>
+        <div class="workout-name">${escHtml(w.name||'WOD sin nombre')}</div>
         <div class="workout-meta">
           <span>${fmtDate(w.date)}</span>
-          <span>${exCount} ejercicio${exCount===1?'':'s'}</span>
-          ${w.totalTime ? `<span>⏱ ${escapeHtml(w.totalTime)}</span>` : ''}
+          <span>${n} ejercicio${n===1?'':'s'}</span>
+          ${w.totalTime ? `<span>⏱ ${escHtml(w.totalTime)}</span>` : ''}
           ${w.calories  ? `<span class="stat-accent">🔥 ${w.calories} kcal</span>` : ''}
           ${w.hrMax     ? `<span class="stat-good">♥ ${w.hrMax}</span>` : ''}
         </div>
       </div>`;
     card.addEventListener('click', () => openWorkout(w.id));
-    container.appendChild(card);
+    cont.appendChild(card);
   });
 }
 
 document.getElementById('btnNewWorkout').addEventListener('click',      () => openWorkout(null));
 document.getElementById('btnNewWorkoutEmpty').addEventListener('click', () => openWorkout(null));
 
-/* =========================================================
-   WORKOUT DETAIL / EDIT
-   ========================================================= */
+/* ═══════════════════════════════════════════════════════════
+   WORKOUT DETAIL
+═══════════════════════════════════════════════════════════ */
 function blankWorkout() {
-  return { id:uid(), name:'', date:todayISO(), photo:null, ocrText:'',
-    exercises:[], totalTime:'', calories:'', hrMax:'', hrMin:'', hrAvg:'', notes:'' };
+  return {id:uid(), name:'', date:todayISO(), photo:null, ocrText:'',
+          exercises:[], totalTime:'', calories:'', hrMax:'', hrMin:'', hrAvg:'', notes:''};
 }
-function blankExercise(name='') {
-  return { id:uid(), name, time:'', sets:[{weight:'',reps:'',time:''}] };
+function blankEx(name='') {
+  return {id:uid(), name, time:'', sets:[{weight:'',reps:'',time:''}]};
 }
 
 function openWorkout(id) {
   if (id) {
     const w = Store.getWorkouts().find(x => x.id === id);
+    if (!w) return;
     state.draft = JSON.parse(JSON.stringify(w));
-    state.currentWorkoutId = id;
+    state.currentId = id;
   } else {
     state.draft = blankWorkout();
-    state.currentWorkoutId = null;
+    state.currentId = null;
   }
-  fillDetailForm(state.draft);
-  // Reset AI panel
-  document.getElementById('aiResult').hidden = true;
-  document.getElementById('aiStatus').hidden = true;
-  document.getElementById('aiNoKey').hidden = !!Store.getSettings().openaiKey;
+  fillForm();
   showView('view-detail');
-  document.getElementById('btnDeleteWorkout').hidden = !state.currentWorkoutId;
+  document.getElementById('btnDeleteWorkout').hidden = !state.currentId;
+  document.getElementById('aiToast').hidden = true;
 }
 
-function fillDetailForm(w) {
+function fillForm() {
+  const w = state.draft;
   document.getElementById('workoutName').value  = w.name      || '';
   document.getElementById('workoutDate').value  = w.date      || todayISO();
   document.getElementById('totalTime').value    = w.totalTime || '';
@@ -199,25 +148,33 @@ function fillDetailForm(w) {
   document.getElementById('hrAvg').value        = w.hrAvg     || '';
   document.getElementById('workoutNotes').value = w.notes     || '';
 
-  const img         = document.getElementById('workoutPhotoPreview');
-  const placeholder = document.getElementById('photoPlaceholder');
-  const ocrBtn      = document.getElementById('btnRunOCR');
+  const img = document.getElementById('workoutPhotoPreview');
   if (w.photo) {
-    img.src = w.photo; img.hidden = false; placeholder.hidden = true; ocrBtn.disabled = false;
+    img.src = w.photo; img.hidden = false;
+    document.getElementById('photoPlaceholder').hidden = true;
+    document.getElementById('btnRunOCR').disabled = false;
   } else {
-    img.hidden = true; placeholder.hidden = false; ocrBtn.disabled = true;
+    img.hidden = true;
+    document.getElementById('photoPlaceholder').hidden = false;
+    document.getElementById('btnRunOCR').disabled = true;
   }
-  const ocrDetails = document.getElementById('ocrDetails');
-  if (w.ocrText) { ocrDetails.hidden = false; document.getElementById('ocrTextArea').value = w.ocrText; }
-  else           { ocrDetails.hidden = true;  document.getElementById('ocrTextArea').value = ''; }
+  if (w.ocrText) {
+    document.getElementById('ocrDetails').hidden = false;
+    document.getElementById('ocrTextArea').value = w.ocrText;
+  } else {
+    document.getElementById('ocrDetails').hidden = true;
+    document.getElementById('ocrTextArea').value = '';
+  }
   document.getElementById('ocrStatus').textContent = '';
-  renderExerciseList();
+  renderExList();
 }
 
 document.getElementById('btnBackToList').addEventListener('click', () => showView('view-list'));
 
-/* ---- photo upload ---- */
-document.getElementById('photoDrop').addEventListener('click', () => document.getElementById('photoInput').click());
+/* ── Photo ── */
+document.getElementById('photoDrop').addEventListener('click', () =>
+  document.getElementById('photoInput').click());
+
 document.getElementById('photoInput').addEventListener('change', e => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -229,267 +186,228 @@ document.getElementById('photoInput').addEventListener('change', e => {
     document.getElementById('btnRunOCR').disabled = false;
   };
   reader.readAsDataURL(file);
+  e.target.value = ''; // reset so same file can be selected again
 });
 
-/* ---- OCR ---- */
+/* ── OCR ── */
 document.getElementById('btnRunOCR').addEventListener('click', async () => {
   if (!state.draft.photo) return;
-  const status = document.getElementById('ocrStatus');
-  const btn    = document.getElementById('btnRunOCR');
-  btn.disabled = true; status.textContent = 'Leyendo la imagen... 0%';
+  const statusEl = document.getElementById('ocrStatus');
+  const btn      = document.getElementById('btnRunOCR');
+  btn.disabled = true; statusEl.textContent = 'Leyendo imagen… 0%';
   try {
     const result = await Tesseract.recognize(state.draft.photo, 'spa+eng', {
       logger: m => {
         if (m.status === 'recognizing text')
-          status.textContent = `Leyendo la imagen... ${Math.round(m.progress*100)}%`;
-        else status.textContent = m.status;
+          statusEl.textContent = `Leyendo imagen… ${Math.round(m.progress*100)}%`;
+        else statusEl.textContent = m.status;
       }
     });
     const text = result.data.text.trim();
     state.draft.ocrText = text;
     document.getElementById('ocrDetails').hidden = false;
     document.getElementById('ocrTextArea').value = text;
-    status.textContent = text ? 'Listo. Revisa el texto y conviértelo en ejercicios.' : 'No se detectó texto, prueba con otra foto más clara.';
+    statusEl.textContent = text
+      ? '✓ Texto leído. Revísalo y conviértelo en ejercicios.'
+      : 'No se detectó texto claro. Prueba con otra foto.';
   } catch(err) {
+    statusEl.textContent = 'Error al leer la imagen.';
     console.error(err);
-    status.textContent = 'No se pudo leer la imagen. Inténtalo de nuevo.';
   } finally { btn.disabled = false; }
 });
 
-/* ---- OCR → ejercicios ---- */
 document.getElementById('btnStructure').addEventListener('click', () => {
-  const text = document.getElementById('ocrTextArea').value;
+  const text  = document.getElementById('ocrTextArea').value;
   state.draft.ocrText = text;
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   if (!lines.length) return;
-  if (!confirm(`Se añadirán ${lines.length} ejercicio(s) a partir del texto. ¿Continuar?`)) return;
-  lines.forEach(line => state.draft.exercises.push(blankExercise(line)));
-  renderExerciseList();
+  if (!confirm(`Añadir ${lines.length} ejercicio(s) desde el texto leído?`)) return;
+  lines.forEach(l => state.draft.exercises.push(blankEx(l)));
+  renderExList();
 });
 
-/* ---- exercises editor ---- */
-function renderExerciseList() {
-  const container = document.getElementById('exerciseList');
-  container.innerHTML = '';
-  if (state.draft.exercises.length === 0) {
-    container.innerHTML = `<p style="color:var(--muted);font-size:0.85rem;">Aún no hay ejercicios. Añádelos manualmente o léelos desde la foto.</p>`;
+/* ── Exercises editor ── */
+function renderExList() {
+  const cont = document.getElementById('exerciseList');
+  cont.innerHTML = '';
+  if (!state.draft.exercises.length) {
+    cont.innerHTML = `<p style="color:var(--muted);font-size:.85rem">Aún no hay ejercicios. Añádelos aquí o léelos desde la foto.</p>`;
     return;
   }
-  state.draft.exercises.forEach((ex, exIdx) => {
+  state.draft.exercises.forEach((ex, ei) => {
     const item = document.createElement('div');
     item.className = 'exercise-item';
     item.innerHTML = `
       <div class="exercise-item-top">
-        <input type="text" value="${escapeHtml(ex.name)}" placeholder="Nombre del ejercicio" data-role="ex-name">
-        <button class="icon-btn danger" data-role="del-ex" title="Eliminar ejercicio">✕</button>
+        <input type="text" value="${escHtml(ex.name)}" placeholder="Nombre del ejercicio" data-r="name">
+        <button class="icon-btn danger" data-r="del">✕</button>
       </div>
-      <div class="set-row-labels">
-        <span>#</span><span>Peso (kg)</span><span>Reps</span><span>Tiempo</span><span></span>
-      </div>
-      <div data-role="sets"></div>
+      <div class="set-row-labels"><span>#</span><span>Peso(kg)</span><span>Reps</span><span>Tiempo</span><span></span></div>
+      <div data-r="sets"></div>
       <div class="exercise-actions">
-        <button class="add-set-btn" data-role="add-set">+ serie</button>
+        <button class="add-set-btn" data-r="addset">+ serie</button>
         <div class="exercise-time">
           <span>Tiempo ejercicio</span>
-          <input type="text" value="${escapeHtml(ex.time||'')}" placeholder="mm:ss" data-role="ex-time">
+          <input type="text" value="${escHtml(ex.time||'')}" placeholder="mm:ss" data-r="time">
         </div>
       </div>`;
-
-    const setsContainer = item.querySelector('[data-role="sets"]');
-    ex.sets.forEach((set, setIdx) => {
+    const setsDiv = item.querySelector('[data-r="sets"]');
+    ex.sets.forEach((set, si) => {
       const row = document.createElement('div');
       row.className = 'set-row';
       row.innerHTML = `
-        <span class="set-index">${setIdx+1}</span>
-        <input type="number" step="0.5" value="${set.weight}" data-role="set-weight">
-        <input type="number" value="${set.reps}" data-role="set-reps">
-        <input type="text" value="${set.time}" placeholder="mm:ss" data-role="set-time">
-        <button class="icon-btn danger" data-role="del-set" title="Quitar serie">✕</button>`;
-      row.querySelector('[data-role="set-weight"]').addEventListener('input', e => { set.weight = e.target.value; });
-      row.querySelector('[data-role="set-reps"]').addEventListener('input',  e => { set.reps   = e.target.value; });
-      row.querySelector('[data-role="set-time"]').addEventListener('input',  e => { set.time   = e.target.value; });
-      row.querySelector('[data-role="del-set"]').addEventListener('click', () => {
-        ex.sets.splice(setIdx, 1);
+        <span class="set-index">${si+1}</span>
+        <input type="number" step="0.5" value="${escHtml(set.weight)}" placeholder="0" data-r="w">
+        <input type="number" value="${escHtml(set.reps)}" placeholder="0" data-r="r">
+        <input type="text" value="${escHtml(set.time)}" placeholder="mm:ss" data-r="t">
+        <button class="icon-btn danger" data-r="delset">✕</button>`;
+      row.querySelector('[data-r="w"]').oninput   = e => { set.weight = e.target.value; };
+      row.querySelector('[data-r="r"]').oninput   = e => { set.reps   = e.target.value; };
+      row.querySelector('[data-r="t"]').oninput   = e => { set.time   = e.target.value; };
+      row.querySelector('[data-r="delset"]').onclick = () => {
+        ex.sets.splice(si,1);
         if (!ex.sets.length) ex.sets.push({weight:'',reps:'',time:''});
-        renderExerciseList();
-      });
-      setsContainer.appendChild(row);
+        renderExList();
+      };
+      setsDiv.appendChild(row);
     });
-
-    item.querySelector('[data-role="ex-name"]').addEventListener('input', e => { ex.name = e.target.value; });
-    item.querySelector('[data-role="ex-time"]').addEventListener('input', e => { ex.time = e.target.value; });
-    item.querySelector('[data-role="del-ex"]').addEventListener('click', () => {
-      state.draft.exercises.splice(exIdx, 1); renderExerciseList();
-    });
-    item.querySelector('[data-role="add-set"]').addEventListener('click', () => {
-      ex.sets.push({weight:'',reps:'',time:''}); renderExerciseList();
-    });
-    container.appendChild(item);
+    item.querySelector('[data-r="name"]').oninput  = e => { ex.name = e.target.value; };
+    item.querySelector('[data-r="time"]').oninput  = e => { ex.time = e.target.value; };
+    item.querySelector('[data-r="del"]').onclick   = () => { state.draft.exercises.splice(ei,1); renderExList(); };
+    item.querySelector('[data-r="addset"]').onclick = () => { ex.sets.push({weight:'',reps:'',time:''}); renderExList(); };
+    cont.appendChild(item);
   });
 }
 
 document.getElementById('btnAddExercise').addEventListener('click', () => {
-  state.draft.exercises.push(blankExercise('')); renderExerciseList();
+  state.draft.exercises.push(blankEx()); renderExList();
 });
 
-/* ---- save / delete workout ---- */
-document.getElementById('btnSaveWorkout').addEventListener('click', () => {
-  const w     = state.draft;
-  w.name      = document.getElementById('workoutName').value.trim() || 'WOD sin nombre';
-  w.date      = document.getElementById('workoutDate').value || todayISO();
-  w.totalTime = document.getElementById('totalTime').value.trim();
-  w.calories  = document.getElementById('calories').value;
-  w.hrMax     = document.getElementById('hrMax').value;
-  w.hrMin     = document.getElementById('hrMin').value;
-  w.hrAvg     = document.getElementById('hrAvg').value;
-  w.notes     = document.getElementById('workoutNotes').value;
-  w.ocrText   = document.getElementById('ocrTextArea').value;
+/* ── Save / Delete ── */
+function readForm() {
+  const w      = state.draft;
+  w.name       = document.getElementById('workoutName').value.trim() || 'WOD sin nombre';
+  w.date       = document.getElementById('workoutDate').value || todayISO();
+  w.totalTime  = document.getElementById('totalTime').value.trim();
+  w.calories   = document.getElementById('calories').value;
+  w.hrMax      = document.getElementById('hrMax').value;
+  w.hrMin      = document.getElementById('hrMin').value;
+  w.hrAvg      = document.getElementById('hrAvg').value;
+  w.notes      = document.getElementById('workoutNotes').value;
+  w.ocrText    = document.getElementById('ocrTextArea').value;
+  return w;
+}
 
-  const list  = Store.getWorkouts();
-  const idx   = list.findIndex(x => x.id === w.id);
+document.getElementById('btnSaveWorkout').addEventListener('click', () => {
+  const w    = readForm();
+  const list = Store.getWorkouts();
+  const idx  = list.findIndex(x => x.id === w.id);
   if (idx >= 0) list[idx] = w; else list.push(w);
   Store.saveWorkouts(list);
-  state.currentWorkoutId = w.id;
-  showToast('WOD guardado ✓');
+  state.currentId = w.id;
+  toast('WOD guardado ✓');
   showView('view-list');
 });
 
 document.getElementById('btnDeleteWorkout').addEventListener('click', () => {
-  if (!state.currentWorkoutId) return;
-  if (!confirm('¿Eliminar este entrenamiento? Esta acción no se puede deshacer.')) return;
-  Store.saveWorkouts(Store.getWorkouts().filter(x => x.id !== state.currentWorkoutId));
+  if (!state.currentId) return;
+  if (!confirm('¿Eliminar este WOD? No se puede deshacer.')) return;
+  Store.saveWorkouts(Store.getWorkouts().filter(x => x.id !== state.currentId));
   showView('view-list');
 });
 
-/* =========================================================
-   IA — ANÁLISIS CON OPENAI
-   ========================================================= */
-document.getElementById('btnAnalyzeAI').addEventListener('click', analyzeWorkoutWithAI);
+/* ═══════════════════════════════════════════════════════════
+   CHATGPT INTEGRATION  (sin API Key: copia prompt + abre web)
+═══════════════════════════════════════════════════════════ */
+document.getElementById('btnAskChatGPT').addEventListener('click', async () => {
+  const w = readForm();
 
-async function analyzeWorkoutWithAI() {
-  const apiKey = Store.getSettings().openaiKey;
-  if (!apiKey) {
-    document.getElementById('aiNoKey').hidden = false;
-    return;
-  }
-
-  // Recoger datos del draft actual
-  const w = state.draft;
-  w.name      = document.getElementById('workoutName').value.trim() || 'WOD sin nombre';
-  w.date      = document.getElementById('workoutDate').value || todayISO();
-  w.totalTime = document.getElementById('totalTime').value.trim();
-  w.calories  = document.getElementById('calories').value;
-  w.hrMax     = document.getElementById('hrMax').value;
-  w.hrMin     = document.getElementById('hrMin').value;
-  w.hrAvg     = document.getElementById('hrAvg').value;
-  w.notes     = document.getElementById('workoutNotes').value;
-
-  // Últimos 10 WODs para contexto de progreso
+  /* ── Historial reciente ── */
   const history = Store.getWorkouts()
+    .filter(x => x.id !== w.id)
     .sort((a,b) => (b.date||'').localeCompare(a.date||''))
-    .slice(0, 10)
+    .slice(0, 8)
     .map(h => {
-      const exSummary = (h.exercises||[]).map(ex => {
-        const sets = ex.sets.filter(s => s.weight || s.reps);
-        const setStr = sets.map(s => `${s.reps||'?'}r${s.weight?'@'+s.weight+'kg':''}`).join(', ');
-        return `  - ${ex.name}${setStr?' ('+setStr+')':''}`;
+      const exs = (h.exercises||[]).map(ex => {
+        const sets = ex.sets.filter(s => s.weight||s.reps)
+          .map(s => `${s.reps||'?'}rep${s.weight?' @'+s.weight+'kg':''}`)
+          .join(', ');
+        return `  • ${ex.name}${sets?' ('+sets+')':''}`;
       }).join('\n');
-      return `${h.date} — ${h.name}\n${exSummary}${h.totalTime?' | Tiempo: '+h.totalTime:''}${h.calories?' | Kcal: '+h.calories:''}`;
-    }).join('\n\n');
+      return `${h.date}  ${h.name}\n${exs||'  (sin detalle)'}${h.totalTime?' | '+h.totalTime:''}${h.calories?' | '+h.calories+' kcal':''}`;
+    }).join('\n\n') || '(sin historial previo)';
 
-  // Última medida corporal
-  const lastMeasure = Store.getMeasurements().sort((a,b) => b.date.localeCompare(a.date))[0];
-  const measureStr = lastMeasure
-    ? `Peso: ${lastMeasure.weight||'?'} kg, % grasa: ${lastMeasure.bodyFat||'?'}, Cintura: ${lastMeasure.waist||'?'} cm`
-    : 'Sin datos de medidas registrados.';
+  /* ── WOD actual ── */
+  const exsNow = (w.exercises||[]).map(ex => {
+    const sets = ex.sets.filter(s => s.weight||s.reps)
+      .map(s => `${s.reps||'?'}rep${s.weight?' @'+s.weight+'kg':''}`)
+      .join(', ');
+    return `  • ${ex.name}${sets?' ('+sets+')':''}${ex.time?' ['+ex.time+']':''}`;
+  }).join('\n') || '  (sin ejercicios)';
 
-  // WOD actual
-  const currentExSummary = (w.exercises||[]).map(ex => {
-    const sets = ex.sets.filter(s => s.weight || s.reps);
-    const setStr = sets.map(s => `${s.reps||'?'}r${s.weight?'@'+s.weight+'kg':''}`).join(', ');
-    return `  - ${ex.name}${setStr?' ('+setStr+')':''}${ex.time?' ['+ex.time+']':''}`;
-  }).join('\n');
+  /* ── Última medida ── */
+  const lastM = Store.getMeasurements().sort((a,b) => b.date.localeCompare(a.date))[0];
+  const medidas = lastM
+    ? `Peso ${lastM.weight||'?'}kg, grasa ${lastM.bodyFat||'?'}%, cintura ${lastM.waist||'?'}cm, cadera ${lastM.hips||'?'}cm`
+    : 'Sin datos registrados.';
 
-  const prompt = `Eres un entrenador de CrossFit experto y nutricionista deportivo. Analiza este entrenamiento y da consejos personalizados en español.
+  const prompt = `Eres mi entrenador personal de CrossFit y nutricionista deportivo. Aquí tienes mis datos:
 
-ENTRENAMIENTO DE HOY (${w.date}): ${w.name}
-${currentExSummary || 'Sin ejercicios registrados.'}
+━━ ENTRENAMIENTO DE HOY (${w.date}) ━━
+WOD: ${w.name}
+${exsNow}
 Tiempo total: ${w.totalTime||'no registrado'}
 Calorías: ${w.calories||'no registrado'} kcal
-Pulsaciones: máx ${w.hrMax||'?'} / mín ${w.hrMin||'?'} / media ${w.hrAvg||'?'} ppm
+Frecuencia cardíaca: máx ${w.hrMax||'?'} / mín ${w.hrMin||'?'} / media ${w.hrAvg||'?'} ppm
 Notas: ${w.notes||'ninguna'}
 
-ÚLTIMOS ENTRENAMIENTOS (histórico):
-${history||'Sin histórico previo.'}
+━━ ÚLTIMOS ENTRENAMIENTOS ━━
+${history}
 
-ESTADO FÍSICO ACTUAL:
-${measureStr}
+━━ MEDIDAS CORPORALES ━━
+${medidas}
 
-Por favor responde con estas secciones exactas (usa ### para los títulos):
-### Valoración del entrenamiento de hoy
-### Estado físico y progreso
-### Preparación para el próximo entrenamiento
-### Nutrición recomendada
-### Ejercicios accesorios beneficiosos
+Por favor dame:
+1. Valoración del entrenamiento de hoy
+2. Cómo veo mi progreso físico
+3. Consejos para prepararme para el próximo entrenamiento
+4. Nutrición recomendada (preentrenamiento y recuperación)
+5. Ejercicios accesorios que me beneficiarían
 
-Sé concreto, usa datos del histórico cuando los haya, y da consejos accionables. Máximo 400 palabras en total.`;
+Responde en español, sé concreto y usa mis datos reales.`;
 
-  const statusEl = document.getElementById('aiStatus');
-  const resultEl = document.getElementById('aiResult');
-  const noKeyEl  = document.getElementById('aiNoKey');
-  const btn       = document.getElementById('btnAnalyzeAI');
+  const toastEl = document.getElementById('aiToast');
 
-  noKeyEl.hidden  = true;
-  resultEl.hidden = true;
-  statusEl.hidden = false;
-  statusEl.textContent = '🤖 Analizando tu entrenamiento...';
-  btn.disabled = true;
-
-  try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        max_tokens: 700,
-        messages: [{ role:'user', content: prompt }]
-      })
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Error ${res.status}`);
-    }
-
-    const data    = await res.json();
-    const text    = data.choices?.[0]?.message?.content || '';
-
-    // Renderizar secciones con formato
-    const formatted = text
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/\n{2,}/g, '\n\n');
-
-    resultEl.innerHTML = formatted;
-    resultEl.hidden = false;
-    statusEl.hidden = true;
-  } catch(err) {
-    statusEl.textContent = `❌ ${err.message}`;
-    console.error('OpenAI error:', err);
-  } finally {
-    btn.disabled = false;
+  /* Intentar Web Share API (móvil nativo) */
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: `Análisis WOD — ${w.name}`, text: prompt });
+      return;
+    } catch(e) { /* usuario canceló o no compatible */ }
   }
-}
 
-/* =========================================================
+  /* Fallback: copiar al portapapeles y abrir ChatGPT */
+  try {
+    await navigator.clipboard.writeText(prompt);
+    window.open('https://chat.openai.com/', '_blank');
+    toastEl.textContent = '✓ Prompt copiado al portapapeles.\nPégalo en ChatGPT (Ctrl+V / ⌘V) y pulsa enviar.';
+    toastEl.hidden = false;
+  } catch(err) {
+    /* Si el clipboard falla (HTTP sin HTTPS), mostramos el texto para que copie manualmente */
+    toastEl.textContent = 'No se pudo copiar automáticamente.\nCopia este texto manualmente:\n\n' + prompt;
+    toastEl.hidden = false;
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
    MEASUREMENTS
-   ========================================================= */
+═══════════════════════════════════════════════════════════ */
 document.getElementById('measureDate').value = todayISO();
 
 document.getElementById('btnSaveMeasurement').addEventListener('click', () => {
   const entry = {
-    id: uid(),
-    date:    document.getElementById('measureDate').value || todayISO(),
+    id:      uid(),
+    date:    document.getElementById('measureDate').value    || todayISO(),
     weight:  document.getElementById('measureWeight').value,
     bodyFat: document.getElementById('measureBodyFat').value,
     chest:   document.getElementById('measureChest').value,
@@ -499,193 +417,194 @@ document.getElementById('btnSaveMeasurement').addEventListener('click', () => {
     thigh:   document.getElementById('measureThigh').value,
     calf:    document.getElementById('measureCalf').value
   };
-  const hasAny = ['weight','bodyFat','chest','waist','hips','arm','thigh','calf']
+  const hasData = ['weight','bodyFat','chest','waist','hips','arm','thigh','calf']
     .some(k => entry[k] !== '' && entry[k] != null);
-  if (!hasAny) { alert('Introduce al menos un dato antes de guardar.'); return; }
-
+  if (!hasData) { alert('Introduce al menos un dato antes de guardar.'); return; }
   const list = Store.getMeasurements(); list.push(entry); Store.saveMeasurements(list);
   ['measureWeight','measureBodyFat','measureChest','measureWaist','measureHips','measureArm','measureThigh','measureCalf']
     .forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('measureDate').value = todayISO();
-  showToast('Registro guardado ✓');
+  toast('Registro guardado ✓');
   renderMeasurements();
 });
 
 function renderMeasurements() {
-  const list      = Store.getMeasurements().sort((a,b) => b.date.localeCompare(a.date));
-  const container = document.getElementById('measurementList');
-  const empty     = document.getElementById('emptyMeasurements');
-  container.innerHTML = '';
-  if (!list.length) { empty.hidden = false; container.hidden = true; return; }
-  empty.hidden = true; container.hidden = false;
+  const list  = Store.getMeasurements().sort((a,b) => b.date.localeCompare(a.date));
+  const cont  = document.getElementById('measurementList');
+  const empty = document.getElementById('emptyMeasurements');
+  cont.innerHTML = '';
+  if (!list.length) { empty.hidden=false; cont.hidden=true; return; }
+  empty.hidden=true; cont.hidden=false;
   list.forEach(m => {
     const row = document.createElement('div');
     row.className = 'measurement-row';
-    const stats = [];
-    if (m.weight)  stats.push(`<b>${m.weight}</b> kg`);
-    if (m.bodyFat) stats.push(`${m.bodyFat}% grasa`);
-    if (m.chest)   stats.push(`pecho ${m.chest}`);
-    if (m.waist)   stats.push(`cintura ${m.waist}`);
-    if (m.hips)    stats.push(`cadera ${m.hips}`);
-    if (m.arm)     stats.push(`brazo ${m.arm}`);
-    if (m.thigh)   stats.push(`muslo ${m.thigh}`);
-    if (m.calf)    stats.push(`gemelo ${m.calf}`);
+    const st = [];
+    if (m.weight)  st.push(`<b>${m.weight}</b>kg`);
+    if (m.bodyFat) st.push(`${m.bodyFat}% grasa`);
+    if (m.chest)   st.push(`pecho ${m.chest}`);
+    if (m.waist)   st.push(`cintura ${m.waist}`);
+    if (m.hips)    st.push(`cadera ${m.hips}`);
+    if (m.arm)     st.push(`brazo ${m.arm}`);
+    if (m.thigh)   st.push(`muslo ${m.thigh}`);
+    if (m.calf)    st.push(`gemelo ${m.calf}`);
     row.innerHTML = `
       <div class="m-date">${fmtDate(m.date)}</div>
-      <div class="m-stats">${stats.join(' &nbsp;·&nbsp; ')||'<span style="color:var(--muted)">sin datos</span>'}</div>
-      <button class="icon-btn danger" title="Eliminar">✕</button>`;
-    row.querySelector('.icon-btn').addEventListener('click', () => {
+      <div class="m-stats">${st.join(' · ')||'<span style="opacity:.5">sin datos</span>'}</div>
+      <button class="icon-btn danger">✕</button>`;
+    row.querySelector('.icon-btn').onclick = () => {
       if (!confirm('¿Eliminar este registro?')) return;
       Store.saveMeasurements(Store.getMeasurements().filter(x => x.id !== m.id));
       renderMeasurements();
-    });
-    container.appendChild(row);
+    };
+    cont.appendChild(row);
   });
 }
 
-/* =========================================================
-   CHARTS  — fix: ocultar el wrap, NO el canvas
-   ========================================================= */
-const CHART_COLORS = ['#E63946','#5FB87A','#F1C453','#6C9BCF','#C77DFF','#FF9F1C'];
+/* ═══════════════════════════════════════════════════════════
+   CHARTS — 100% SVG, sin dependencias externas
+═══════════════════════════════════════════════════════════ */
+const COLORS = ['#E63946','#5FB87A','#F1C453','#6C9BCF','#C77DFF','#FF9F1C'];
 
-function setChartVisible(wrapId, emptyId, visible) {
-  document.getElementById(wrapId).classList.toggle('hidden-chart', !visible);
-  document.getElementById(emptyId).classList.toggle('hidden-chart', visible);
-}
+/*
+  drawChart({ containerId, labels, left: [{label, data, color}], right?: [{label, data, color}] })
+  - left  → Y axis izquierdo
+  - right → Y axis derecho (opcional, para escala distinta)
+*/
+function drawChart({ containerId, labels, left=[], right=[] }) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
 
-function destroyChart(key) {
-  if (state.charts[key]) { state.charts[key].destroy(); delete state.charts[key]; }
-}
+  const W  = Math.max(container.offsetWidth || 320, 280);
+  const H  = 190;
+  const PL = right.length ? 42 : 42;   // padding left
+  const PR = right.length ? 42 : 12;   // padding right
+  const PT = 12;
+  const PB = 44;                        // room for X labels + legend
+  const CW = W - PL - PR;
+  const CH = H - PT - PB;
+  const n  = labels.length;
 
-function chartBaseOptions(extraScales) {
-  const tickStyle = { color:'#9A9A92', font:{ family:'JetBrains Mono', size:10 } };
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 400 },
-    interaction: { mode:'index', intersect:false },
-    plugins: {
-      legend:  { labels: { color:'#F1EFE7', font:{ family:'Oswald' } } },
-      tooltip: { titleFont:{ family:'JetBrains Mono' }, bodyFont:{ family:'JetBrains Mono' } }
-    },
-    scales: extraScales || {
-      x: { ticks: tickStyle, grid:{ color:'#3A3A3A' } },
-      y: { ticks: tickStyle, grid:{ color:'#3A3A3A' } }
+  if (n === 0) { container.innerHTML = `<p class="chart-empty">Sin datos suficientes todavía.</p>`; return; }
+
+  /* scale helpers */
+  function scaleY(datasets, h, padT) {
+    const vals = datasets.flatMap(d => d.data.filter(v => v!=null && !isNaN(v)));
+    if (!vals.length) return () => padT + h/2;
+    const mn = Math.min(...vals); const mx = Math.max(...vals);
+    const rng = mx - mn || 1;
+    return v => padT + h - ((v - mn) / rng) * h;
+  }
+  function scaleX(i) { return PL + (n===1 ? CW/2 : (i/(n-1))*CW); }
+
+  const yL  = scaleY(left,  CH, PT);
+  const yR  = scaleY(right, CH, PT);
+
+  /* grid lines & Y axis labels */
+  function yAxisLabels(datasets, scaleF, anchor, color) {
+    const vals = datasets.flatMap(d => d.data.filter(v => v!=null && !isNaN(v)));
+    if (!vals.length) return '';
+    const mn = Math.min(...vals); const mx = Math.max(...vals);
+    const rng = mx - mn || 1;
+    let s = '';
+    for (let i=0; i<=4; i++) {
+      const val = mn + (rng/4)*i;
+      const y   = scaleF(val);
+      s += `<text x="${anchor}" y="${y+4}" text-anchor="${anchor===PL-4?'end':'start'}"
+             fill="${color}" font-size="9" font-family="JetBrains Mono,monospace">${val.toFixed(val<10?1:0)}</text>`;
     }
-  };
+    return s;
+  }
+
+  /* grid horizontal lines */
+  let gridSvg = '';
+  for (let i=0; i<=4; i++) {
+    const y = PT + (CH/4)*i;
+    gridSvg += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#3A3A3A" stroke-width="1"/>`;
+  }
+
+  /* X axis labels (max 7) */
+  let xLabels = '';
+  const step = Math.max(1, Math.floor(n/7));
+  for (let i=0; i<n; i+=step) {
+    xLabels += `<text x="${scaleX(i)}" y="${H-PB+16}" text-anchor="middle"
+                  fill="#9A9A92" font-size="9" font-family="JetBrains Mono,monospace">${labels[i]}</text>`;
+  }
+
+  /* draw a dataset as path + dots */
+  function datasetSvg(ds, scaleFn) {
+    const pts = ds.data.map((v,i) => ({x:scaleX(i), y:(v!=null&&!isNaN(v))?scaleFn(v):null}));
+    let path='', circle='';
+    let drawing=false;
+    pts.forEach(p => {
+      if (p.y!=null) {
+        path += drawing ? ` L${p.x.toFixed(1)},${p.y.toFixed(1)}` : `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+        drawing=true;
+        circle += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5"
+                    fill="${ds.color}" stroke="#1A1A1A" stroke-width="1.5"/>`;
+      } else { drawing=false; }
+    });
+    return `<path d="${path}" fill="none" stroke="${ds.color}" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"/>
+            ${circle}`;
+  }
+
+  let datasetsSvg = '';
+  left.forEach(ds  => { datasetsSvg += datasetSvg(ds, yL); });
+  right.forEach(ds => { datasetsSvg += datasetSvg(ds, yR); });
+
+  /* legend */
+  const allDs = [...left, ...right];
+  let legendX = PL; let legendSvg = '';
+  allDs.forEach(ds => {
+    legendSvg += `<circle cx="${legendX+4}" cy="${H-6}" r="4" fill="${ds.color}"/>
+      <text x="${legendX+12}" y="${H-2}" fill="#F1EFE7" font-size="9" font-family="Oswald,sans-serif">${escHtml(ds.label)}</text>`;
+    legendX += Math.max(ds.label.length*6 + 20, 80);
+  });
+
+  const leftAxisLabels  = yAxisLabels(left,  yL, PL-4, '#9A9A92');
+  const rightAxisLabels = right.length ? yAxisLabels(right, yR, W-PR+4, COLORS[3]) : '';
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+      ${gridSvg}
+      ${leftAxisLabels}
+      ${rightAxisLabels}
+      ${datasetsSvg}
+      ${xLabels}
+      ${legendSvg}
+    </svg>`;
 }
 
-/* ---- exercise select: agrupa por nombre normalizado ---- */
+/* ── Fuzzy exercise select ── */
 function populateExerciseSelect() {
   const select   = document.getElementById('exerciseSelect');
   const workouts = Store.getWorkouts();
-  const map      = {};  // normalizedName → display label
+  const map = {}; // normalizedName → displayLabel
 
   workouts.forEach(w => (w.exercises||[]).forEach(ex => {
-    if (!ex.name || !ex.name.trim()) return;
-    const norm = normalizeName(ex.name);
-    // Usa la versión más larga como etiqueta visible (suele ser la más completa)
+    if (!ex.name||!ex.name.trim()) return;
+    const norm = normName(ex.name);
     if (!map[norm] || ex.name.trim().length > map[norm].length) map[norm] = ex.name.trim();
   }));
 
   const prev   = select.value;
-  const sorted = Object.keys(map).sort((a,b) => map[a].localeCompare(map[b]));
-  select.innerHTML = sorted.length
-    ? sorted.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(map[n])}</option>`).join('')
-    : '<option value="">— Sin ejercicios registrados —</option>';
+  const sorted = Object.keys(map).sort((a,b) => map[a].localeCompare(map[b],'es'));
+
+  if (!sorted.length) {
+    select.innerHTML = '<option value="">— Sin ejercicios registrados —</option>'; return;
+  }
+  select.innerHTML = sorted.map(n => `<option value="${escHtml(n)}">${escHtml(map[n])}</option>`).join('');
   if (map[prev]) select.value = prev;
   return sorted;
 }
 
-function maxWeightInSets(sets)  {
-  let max = null;
-  (sets||[]).forEach(s => { const w = parseFloat(s.weight); if (!isNaN(w) && (max===null||w>max)) max=w; });
-  return max;
+function maxWeightInSets(sets) {
+  let mx=null;
+  (sets||[]).forEach(s => { const v=parseFloat(s.weight); if(!isNaN(v)&&(mx===null||v>mx)) mx=v; });
+  return mx;
 }
 function totalRepsInSets(sets) {
-  return (sets||[]).reduce((s,r) => { const v=parseInt(r.reps,10); return s+(isNaN(v)?0:v); }, 0);
-}
-
-function renderExerciseChart() {
-  destroyChart('exercise');
-  const select       = document.getElementById('exerciseSelect');
-  const exerciseNorm = select.value;
-
-  if (!exerciseNorm) { setChartVisible('exerciseChartWrap','exerciseChartEmpty',false); return; }
-
-  const workouts = Store.getWorkouts()
-    .filter(w => (w.exercises||[]).some(ex => normalizeName(ex.name) === exerciseNorm))
-    .sort((a,b) => a.date.localeCompare(b.date));
-
-  if (!workouts.length) { setChartVisible('exerciseChartWrap','exerciseChartEmpty',false); return; }
-
-  const labels=[], maxWeights=[], totalReps=[];
-  workouts.forEach(w => {
-    const ex = w.exercises.find(e => normalizeName(e.name) === exerciseNorm);
-    labels.push(fmtDate(w.date));
-    maxWeights.push(maxWeightInSets(ex.sets));
-    totalReps.push(totalRepsInSets(ex.sets));
-  });
-
-  setChartVisible('exerciseChartWrap','exerciseChartEmpty',true);
-  const tickStyle = { color:'#9A9A92', font:{ family:'JetBrains Mono', size:10 } };
-  state.charts.exercise = new Chart(document.getElementById('exerciseChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label:'Peso máx. (kg)', data:maxWeights, borderColor:CHART_COLORS[0], backgroundColor:CHART_COLORS[0], tension:0.3, spanGaps:true, yAxisID:'y'  },
-        { label:'Reps totales',   data:totalReps,  borderColor:CHART_COLORS[3], backgroundColor:CHART_COLORS[3], tension:0.3, spanGaps:true, yAxisID:'y1' }
-      ]
-    },
-    options: chartBaseOptions({
-      x:  { ticks:tickStyle, grid:{ color:'#3A3A3A' } },
-      y:  { position:'left',  ticks:tickStyle, grid:{ color:'#3A3A3A' } },
-      y1: { position:'right', ticks:tickStyle, grid:{ display:false } }
-    })
-  });
-}
-
-document.getElementById('exerciseSelect').addEventListener('change', renderExerciseChart);
-
-function renderWeightChart() {
-  destroyChart('weight');
-  const data = Store.getMeasurements()
-    .filter(m => m.weight !== '' && m.weight != null)
-    .sort((a,b) => a.date.localeCompare(b.date));
-
-  if (!data.length) { setChartVisible('weightChartWrap','weightChartEmpty',false); return; }
-  setChartVisible('weightChartWrap','weightChartEmpty',true);
-  state.charts.weight = new Chart(document.getElementById('weightChart'), {
-    type: 'line',
-    data: {
-      labels: data.map(m => fmtDate(m.date)),
-      datasets: [{ label:'Peso (kg)', data:data.map(m => parseFloat(m.weight)), borderColor:CHART_COLORS[0], backgroundColor:CHART_COLORS[0], tension:0.3, fill:false }]
-    },
-    options: chartBaseOptions()
-  });
-}
-
-function renderMeasuresChart() {
-  destroyChart('measures');
-  const all    = Store.getMeasurements().sort((a,b) => a.date.localeCompare(b.date));
-  const fields = [['chest','Pecho'],['waist','Cintura'],['hips','Cadera'],['arm','Brazo'],['thigh','Muslo'],['calf','Pantorrilla']];
-  const active = fields.filter(([k]) => all.some(m => m[k] !== '' && m[k] != null));
-
-  if (!active.length) { setChartVisible('measuresChartWrap','measuresChartEmpty',false); return; }
-  setChartVisible('measuresChartWrap','measuresChartEmpty',true);
-  state.charts.measures = new Chart(document.getElementById('measuresChart'), {
-    type: 'line',
-    data: {
-      labels: all.map(m => fmtDate(m.date)),
-      datasets: active.map(([k,label],i) => ({
-        label, spanGaps:true, fill:false, tension:0.3,
-        borderColor:CHART_COLORS[i%CHART_COLORS.length], backgroundColor:CHART_COLORS[i%CHART_COLORS.length],
-        data: all.map(m => (m[k]!==''&&m[k]!=null) ? parseFloat(m[k]) : null)
-      }))
-    },
-    options: chartBaseOptions()
-  });
+  return (sets||[]).reduce((sum,s) => { const v=parseInt(s.reps,10); return sum+(isNaN(v)?0:v); }, 0);
 }
 
 function renderCharts() {
@@ -695,13 +614,75 @@ function renderCharts() {
   renderMeasuresChart();
 }
 
-/* =========================================================
+function renderExerciseChart() {
+  const norm = document.getElementById('exerciseSelect').value;
+  const area = document.getElementById('exerciseChartArea');
+  if (!norm) { area.innerHTML = '<p class="chart-empty">Elige un ejercicio para ver su evolución.</p>'; return; }
+
+  const workouts = Store.getWorkouts()
+    .filter(w => (w.exercises||[]).some(ex => normName(ex.name) === norm))
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  if (!workouts.length) { area.innerHTML = '<p class="chart-empty">No hay datos para este ejercicio todavía.</p>'; return; }
+
+  const labels=[], weights=[], reps=[];
+  workouts.forEach(w => {
+    const ex = w.exercises.find(e => normName(e.name) === norm);
+    labels.push(fmtDate(w.date));
+    weights.push(maxWeightInSets(ex.sets));
+    reps.push(totalRepsInSets(ex.sets));
+  });
+
+  drawChart({
+    containerId: 'exerciseChartArea',
+    labels,
+    left:  [{label:'Peso máx. (kg)', data:weights, color:COLORS[0]}],
+    right: [{label:'Reps totales',   data:reps,    color:COLORS[3]}]
+  });
+}
+
+document.getElementById('exerciseSelect').addEventListener('change', renderExerciseChart);
+
+function renderWeightChart() {
+  const data = Store.getMeasurements()
+    .filter(m => m.weight!==''&&m.weight!=null)
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  if (!data.length) {
+    document.getElementById('weightChartArea').innerHTML = '<p class="chart-empty">Añade registros en la pestaña Medidas para ver tu evolución.</p>'; return;
+  }
+  drawChart({
+    containerId: 'weightChartArea',
+    labels: data.map(m => fmtDate(m.date)),
+    left:   [{label:'Peso (kg)', data:data.map(m => parseFloat(m.weight)), color:COLORS[0]}]
+  });
+}
+
+function renderMeasuresChart() {
+  const all    = Store.getMeasurements().sort((a,b) => a.date.localeCompare(b.date));
+  const fields = [['chest','Pecho'],['waist','Cintura'],['hips','Cadera'],['arm','Brazo'],['thigh','Muslo'],['calf','Gemelo']];
+  const active = fields.filter(([k]) => all.some(m => m[k]!==''&&m[k]!=null));
+
+  if (!active.length) {
+    document.getElementById('measuresChartArea').innerHTML = '<p class="chart-empty">Añade registros en la pestaña Medidas para ver tu evolución.</p>'; return;
+  }
+  drawChart({
+    containerId: 'measuresChartArea',
+    labels: all.map(m => fmtDate(m.date)),
+    left:   active.map(([k,label],i) => ({
+      label, color:COLORS[i%COLORS.length],
+      data: all.map(m => (m[k]!==''&&m[k]!=null)?parseFloat(m[k]):null)
+    }))
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
    INIT
-   ========================================================= */
+═══════════════════════════════════════════════════════════ */
 renderWorkoutList();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () =>
-    navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW failed', e))
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW:', e))
   );
 }
